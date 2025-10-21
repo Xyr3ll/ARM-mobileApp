@@ -15,14 +15,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '@/navigation/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 interface UserProfile {
   id: string;
-  name: string;
-  email: string;
-  department: string;
-  employeeId: string;
-  joinDate: string;
+  fullName: string;
+  email?: string;
+  department?: string;
+  employeeId?: string;
+  joinDate?: string;
   profileImage?: string;
 }
 
@@ -105,39 +107,43 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
 
   // Load user data on component mount
   useEffect(() => {
-    loadUserData();
+    fetchUserProfile();
   }, []);
 
-  const loadUserData = async () => {
+  const fetchUserProfile = async () => {
+    setLoading(true);
     try {
-      // Try to get user data from AsyncStorage first
-      const storedUserData = await AsyncStorage.getItem('userProfile');
-      if (storedUserData) {
-        setUserProfile(JSON.parse(storedUserData));
+      const auth = getAuth();
+      const user = auth.currentUser;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      const db = getFirestore();
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUserProfile({
+          id: user.uid,
+          fullName: data.fullName || professorName,
+          email: data.email,
+          department: data.department,
+          employeeId: data.employeeId,
+          joinDate: data.createdAt ? new Date(data.createdAt.seconds * 1000).toISOString().split('T')[0] : undefined,
+          profileImage: data.profileImage,
+        });
       } else {
-        // If no stored data, create mock data based on login
-        const mockUserData: UserProfile = {
-          id: '001',
-          name: professorName || 'Dr. John Smith',
-          email: 'john.smith@university.edu',
-          department: 'Computer Science',
-          employeeId: 'EMP001',
-          joinDate: '2020-09-15',
-        };
-        setUserProfile(mockUserData);
-        // Store for future use
-        await AsyncStorage.setItem('userProfile', JSON.stringify(mockUserData));
+        setUserProfile({
+          id: user.uid,
+          fullName: professorName,
+        });
       }
     } catch (error) {
-      console.error('Error loading user data:', error);
-      // Fallback data
+      console.error('Error fetching user profile:', error);
       setUserProfile({
         id: '001',
-        name: professorName || 'Professor',
-        email: 'professor@university.edu',
-        department: 'Academic',
-        employeeId: 'EMP001',
-        joinDate: new Date().toISOString().split('T')[0],
+        fullName: professorName,
       });
     } finally {
       setLoading(false);
@@ -203,7 +209,7 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
           <View style={styles.avatarContainer}>
             <MaterialIcons name="person" size={40} color="#FFFFFF" />
           </View>
-          <Text style={styles.professorName}>{userProfile?.name || professorName}</Text>
+          <Text style={styles.professorName}>{userProfile?.fullName || professorName}</Text>
           <Text style={styles.professorTitle}>Professor</Text>
         </View>
 
