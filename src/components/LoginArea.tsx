@@ -65,7 +65,8 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
 
   // Validation functions
   const validateUsername = (username: string) => {
-    return /^[a-zA-Z0-9]+$/.test(username);
+    // Allow letters (uppercase/lowercase) and spaces only
+    return /^[a-zA-Z\s]+$/.test(username) && username.trim().length > 0;
   };
 
   const validatePassword = (password: string) => {
@@ -149,7 +150,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
     }
 
     if (!isUsernameValid) {
-      Alert.alert('Error', 'Username must only contain alphanumeric values!');
+      Alert.alert('Error', 'Username must only contain letters and spaces!');
       return;
     }
 
@@ -277,7 +278,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
             {isRegistering && username && !isUsernameValid && (
               <View style={styles.validationMessage}>
                 <Ionicons name="warning" size={16} color="#DC2626" style={styles.errorIcon} />
-                <Text style={styles.validationText}>Your username must only contain alphanumeric values!</Text>
+                <Text style={styles.validationText}>Username must only contain letters and spaces!</Text>
               </View>
             )}
           </View>
@@ -608,9 +609,10 @@ const styles = StyleSheet.create({
   },
   input: {
     fontSize: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 0,
     color: '#374151',
+    minHeight: 48,
   },
   inputWithIcon: {
     flexDirection: 'row',
