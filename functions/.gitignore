@@ -1,0 +1,4 @@
+# Firebase Functions build outputs and dependencies
+lib/
+node_modules/
+*.log

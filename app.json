@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "ARM Professors App",
+    "slug": "ARM_project",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/ARM-LOGO.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/ARM-LOGO.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f8f9fa"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tomazacre.armproject",
+      "buildNumber": "1.0.0",
+      "icon": "./assets/ARM-LOGO.png"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/ARM-LOGO.png",
+        "backgroundColor": "#f8f9fa",
+        "monochromeImage": "./assets/ARM-LOGO.png"
+      },
+      "package": "com.tomazacre.armproject",
+      "versionCode": 2,
+      "icon": "./assets/ARM-LOGO.png"
+    },
+    "web": {
+      "favicon": "./assets/ARM-LOGO.png",
+      "bundler": "metro"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "eafea280-5b1f-4af7-b357-56a75f20fb2f"
+      }
+    },
+    "owner": "tomazacre",
+    "updates": {
+      "url": "https://u.expo.dev/eafea280-5b1f-4af7-b357-56a75f20fb2f"
+    }
+  }
+}
