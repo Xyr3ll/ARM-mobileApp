@@ -522,7 +522,7 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
               >
                 <View style={styles.roomInfo}>
                   <Text style={styles.roomName}>{room.name}</Text>
-                  <Text style={styles.roomCapacity}>Type: {room.type === 'laboratory' ? 'Laboratory' : 'Lecture'}</Text>
+                  <Text style={styles.roomTypeText}>Type: {room.type === 'laboratory' ? 'Laboratory' : 'Lecture'}</Text>
                   <Text style={styles.freeText}>Free: {room.freeSlots.slice(0, 3).join(', ')}{room.freeSlots.length > 3 ? '…' : ''}</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
@@ -587,10 +587,7 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
           </View>
           <View style={styles.roomInfoCard}>
             <Text style={styles.roomTitle}>
-              {roomType === 'laboratory' ? 
-                `${selectedRoom} (Capacity: 40)` : 
-                `${selectedRoom} (Capacity: 60)`
-              }
+              {selectedRoom}
             </Text>
           </View>
         </View>
@@ -832,10 +829,7 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 4,
   },
-  roomCapacity: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
+  
   freeText: {
     fontSize: 12,
     color: '#374151',
