@@ -248,11 +248,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
         <View style={[styles.loginCard, isRegistering && styles.loginCardExpanded]}>
           {/* Branding Header */}
           <View style={styles.header}>
-            <Image
-              source={require('../../assets/ARM-LOGO.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
+            
             <Text style={styles.title}>ARM Professors App</Text>
             <Text style={styles.subtitle}>{isRegistering ? 'Create your account' : 'Sign in to continue'}</Text>
           </View>
@@ -509,12 +505,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
             </TouchableOpacity>
           </View>
 
-          {/* Forgot Password */}
-          {!isRegistering && (
-            <TouchableOpacity style={styles.forgotPassword} onPress={() => Alert.alert('Forgot Password', 'Password reset is not implemented yet.') }>
-              <Text style={styles.forgotPasswordText}>Forgot your password?</Text>
-            </TouchableOpacity>
-          )}
+          {/* Forgot Password link removed as requested */}
         </View>
       </LinearGradient>
           </ScrollView>

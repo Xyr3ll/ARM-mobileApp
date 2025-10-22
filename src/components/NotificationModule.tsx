@@ -194,62 +194,62 @@ export const NotificationModule: React.FC<NotificationModuleProps> = ({
         const scheduleMap = data?.schedule || {};
         const professorAssignments = data?.professorAssignments || {};
         const program = data?.program || '';
-        
+
         // Loop through each schedule entry to find substituteTeacher assignments
         Object.keys(scheduleMap).forEach((key: string) => {
           const entry = scheduleMap[key];
           const substituteTeacher = entry?.substituteTeacher;
           const originalProfessor = professorAssignments[key]; // Get the original professor
-          
-          // Check if current user is assigned as substitute
-          if (substituteTeacher === currentUsername) {
-            // Parse day and time from key (e.g., "Monday_8:30AM")
-            const [dayFull, timeStr] = key.split('_');
-            
-            // Format time ago based on updatedAt
-            const updatedAt = data.updatedAt?.toDate?.();
-            let timeAgo = 'Just now';
-            if (updatedAt) {
-              const diffMs = currentTime - updatedAt.getTime();
-              const diffMins = Math.floor(diffMs / 60000);
-              const diffHours = Math.floor(diffMs / 3600000);
-              const diffDays = Math.floor(diffMs / 86400000);
-              
-              if (diffDays > 0) {
-                timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-              } else if (diffHours > 0) {
-                timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-              } else if (diffMins > 0) {
-                timeAgo = `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-              }
-            }
 
-            const title = 'Substitution Assignment';
-            const subject = entry.subject || 'a class';
-            const section = entry.sectionName || '';
-            const room = entry.room || '';
-            const startTime = entry.startTime || '';
-            const endTime = entry.endTime || '';
-            
-            let message = `You have been assigned as substitute instructor for ${subject}`;
-            if (section) message += ` (${section})`;
-            if (originalProfessor) message += `\nSubstituting for: ${originalProfessor}`;
-            if (program) message += `\nProgram: ${program}`;
-            if (room) message += `\nRoom: ${room}`;
-            if (dayFull && startTime && endTime) {
-              message += `\nSchedule: ${dayFull} ${startTime} - ${endTime}`;
-            }
+          // Only generate a substitution notification when substituteTeacher explicitly matches current user
+          if (!substituteTeacher || substituteTeacher !== currentUsername) return;
 
-            items.push({
-              id: `${docSnap.id}-${key}`,
-              type: 'info',
-              title,
-              message,
-              time: timeAgo,
-              timestamp: updatedAt?.getTime() || Date.now(),
-              source: 'substitution',
-            });
+          // Parse day and time from key (e.g., "Monday_8:30AM")
+          const [dayFull, timeStr] = key.split('_');
+
+          // Prefer per-entry updatedAt when available, otherwise fall back to document updatedAt
+          const updatedAt = entry?.updatedAt?.toDate?.() || data.updatedAt?.toDate?.();
+          let timeAgo = 'Just now';
+          if (updatedAt) {
+            const diffMs = currentTime - updatedAt.getTime();
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffDays > 0) {
+              timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+            } else if (diffHours > 0) {
+              timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+            } else if (diffMins > 0) {
+              timeAgo = `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+            }
           }
+
+          const title = 'Substitution Assignment';
+          const subject = entry.subject || 'a class';
+          const section = entry.sectionName || '';
+          const room = entry.room || '';
+          const startTime = entry.startTime || '';
+          const endTime = entry.endTime || '';
+
+          let message = `You have been assigned as substitute instructor for ${subject}`;
+          if (section) message += ` (${section})`;
+          if (originalProfessor) message += `\nSubstituting for: ${originalProfessor}`;
+          if (program) message += `\nProgram: ${program}`;
+          if (room) message += `\nRoom: ${room}`;
+          if (dayFull && startTime && endTime) {
+            message += `\nSchedule: ${dayFull} ${startTime} - ${endTime}`;
+          }
+
+          items.push({
+            id: `${docSnap.id}-${key}`,
+            type: 'info',
+            title,
+            message,
+            time: timeAgo,
+            timestamp: updatedAt?.getTime() || Date.now(),
+            source: 'substitution',
+          });
         });
       });
 
@@ -373,7 +373,7 @@ export const NotificationModule: React.FC<NotificationModuleProps> = ({
         <TouchableOpacity style={styles.navItem} onPress={handleHomePress}>
           <MaterialIcons name="home" size={28} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
+        <TouchableOpacity style={styles.navItem} onPress={handleSchedulePress}>
           <MaterialIcons name="notifications" size={28} color="#1E40AF" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={handleSchedulePress}>
@@ -418,6 +418,54 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 34,
+  },
+  headerRight: {
+    width: 34,
+    alignItems: 'flex-end',
+  },
+  notificationIconWrapper: {
+    position: 'relative',
+    width: 34,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unreadBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  notificationIconWrapperBottom: {
+    position: 'relative',
+  },
+  unreadBadgeSmall: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    backgroundColor: '#EF4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unreadBadgeTextSmall: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   notificationScrollView: {
     flex: 1,

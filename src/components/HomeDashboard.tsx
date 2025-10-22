@@ -133,9 +133,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [latestReservation, setLatestReservation] = useState<ReservationItem | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const [reservationBadgeCount, setReservationBadgeCount] = useState<number>(0);
+  const [substitutionBadgeCount, setSubstitutionBadgeCount] = useState<number>(0);
   const [lastSeenReservationsAt, setLastSeenReservationsAt] = useState<number | null>(null);
+  const [lastSeenSubstitutionsAt, setLastSeenSubstitutionsAt] = useState<number | null>(null);
+  const [ackedSubstitutionMap, setAckedSubstitutionMap] = useState<Record<string, number>>({});
+  const [currentSubstitutionIds, setCurrentSubstitutionIds] = useState<string[]>([]);
 
   const LAST_SEEN_RES_KEY = 'lastSeenReservationsAt';
+  const LAST_SEEN_SUBS_KEY = 'lastSeenSubstitutionsAt';
+  const ACK_SUBS_KEY = 'ackedSubstitutionIds';
 
   // Load current user from session to get the username
   useEffect(() => {
@@ -148,6 +154,26 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         }
         const stored = await AsyncStorage.getItem(LAST_SEEN_RES_KEY);
         if (stored) setLastSeenReservationsAt(parseInt(stored, 10));
+        const storedSubs = await AsyncStorage.getItem(LAST_SEEN_SUBS_KEY);
+        if (storedSubs) setLastSeenSubstitutionsAt(parseInt(storedSubs, 10));
+        const storedAcked = await AsyncStorage.getItem(ACK_SUBS_KEY);
+        if (storedAcked) {
+          try {
+            const parsed = JSON.parse(storedAcked) as Record<string, number> | string[];
+            // Support both old array format and new map format
+            if (Array.isArray(parsed)) {
+              // convert array -> map with ack timestamp = now (best-effort)
+              const map: Record<string, number> = {};
+              const now = Date.now();
+              parsed.forEach((id) => { map[id] = now; });
+              setAckedSubstitutionMap(map);
+            } else {
+              setAckedSubstitutionMap(parsed || {});
+            }
+          } catch (e) {
+            console.warn('Failed to parse acked substitutions list', e);
+          }
+        }
       } catch (e) {
         console.warn('Failed to load session user', e);
       }
@@ -191,8 +217,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       }).length;
       setReservationBadgeCount(nonPendingCount);
       
-      // Update total badge: notifications + reservation updates
-      setTotalBadgeCount(notificationCount + nonPendingCount);
+  // total will be computed in separate effect (includes substitutions)
       
       // Get the most recent reservation
       if (items.length > 0) {
@@ -203,6 +228,67 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     });
     return () => unsub();
   }, [currentUsername, lastSeenReservationsAt, notificationCount]);
+
+  // Live listener: collect substitution assignment ids for current user and exclude acknowledged ones
+  // NOTE: rely on per-entry ids only so new assignments reliably increment the badge
+  useEffect(() => {
+    if (!currentUsername) return;
+    const colRef = collection(db, 'schedules');
+    const unsub = onSnapshot(colRef, (snap) => {
+      const foundIds: string[] = [];
+      // Build a set of currently present substitution ids and capture per-entry updatedAt when available
+      const presentIds: string[] = [];
+      const entryUpdatedMap: Record<string, number> = {};
+      snap.forEach((docSnap) => {
+        const data = docSnap.data() as any;
+        const scheduleMap = data?.schedule || {};
+        Object.keys(scheduleMap).forEach((key: string) => {
+          const entry = scheduleMap[key];
+          const substituteTeacher = entry?.substituteTeacher;
+          if (substituteTeacher === currentUsername) {
+            const id = `${docSnap.id}-${key}`;
+            presentIds.push(id);
+            // Prefer per-entry updatedAt if present, otherwise use doc-level updatedAt
+            const entryUpdatedAt = entry?.updatedAt?.toDate?.()?.getTime?.() || data?.updatedAt?.toDate?.()?.getTime?.() || 0;
+            entryUpdatedMap[id] = entryUpdatedAt;
+          }
+        });
+      });
+
+      // Compute which present ids should be counted as new (not acknowledged after their latest update)
+      presentIds.forEach((id) => {
+        const ackTs = ackedSubstitutionMap[id];
+        const lastUpdate = entryUpdatedMap[id] || 0;
+        if (!ackTs || lastUpdate > ackTs) {
+          foundIds.push(id);
+        }
+      });
+
+      // Prune ackedSubstitutionMap keys that are no longer present in any schedule (optional cleanup)
+      const existingAckKeys = Object.keys(ackedSubstitutionMap || {});
+      const cleanedAckMap: Record<string, number> = { ...(ackedSubstitutionMap || {}) };
+      let cleaned = false;
+      existingAckKeys.forEach(k => {
+        if (!Object.prototype.hasOwnProperty.call(entryUpdatedMap, k) && !presentIds.includes(k)) {
+          // this ack refers to an id that's no longer present; remove it to avoid accumulation
+          delete cleanedAckMap[k];
+          cleaned = true;
+        }
+      });
+      if (cleaned) {
+        setAckedSubstitutionMap(cleanedAckMap);
+        AsyncStorage.setItem(ACK_SUBS_KEY, JSON.stringify(cleanedAckMap)).catch(e => console.warn('Failed to persist cleaned ack map', e));
+      }
+      setCurrentSubstitutionIds(foundIds);
+      setSubstitutionBadgeCount(foundIds.length);
+    });
+    return () => unsub();
+  }, [currentUsername, ackedSubstitutionMap]);
+
+  // Compute combined badge count whenever any source changes
+  useEffect(() => {
+    setTotalBadgeCount(notificationCount + reservationBadgeCount + substitutionBadgeCount);
+  }, [notificationCount, reservationBadgeCount, substitutionBadgeCount]);
 
   // Build today's weekday key and fetch schedule assigned to professor
   const todayShort = useMemo(() => {
@@ -276,6 +362,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     });
   };
 
+  const [showDebug, setShowDebug] = useState(false);
+  const clearAckedForDebug = async () => {
+    try {
+      await AsyncStorage.removeItem(ACK_SUBS_KEY);
+      setAckedSubstitutionMap({});
+    } catch (e) {
+      console.warn('Failed to clear acked subs', e);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -293,12 +389,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <Text style={styles.professorLabel}>Professor</Text>
                 <Text style={styles.professorName}>{professorName}</Text>
               </View>
-              <TouchableOpacity 
-                style={styles.logoutButton} 
-                onPress={handleLogout}
-              >
-                <MaterialIcons name="logout" size={20} color="#EF4444" />
-              </TouchableOpacity>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -328,8 +418,39 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     const now = Date.now();
                     await AsyncStorage.setItem(LAST_SEEN_RES_KEY, String(now));
                     setLastSeenReservationsAt(now);
-                    setReservationBadgeCount(0);
-                    setTotalBadgeCount(0);
+                      setReservationBadgeCount(0);
+                      // Persist last seen for substitutions as well
+                      await AsyncStorage.setItem(LAST_SEEN_SUBS_KEY, String(now));
+                      setLastSeenSubstitutionsAt(now);
+                      setSubstitutionBadgeCount(0);
+                      // Persist acknowledged substitution IDs so they remain cleared after logout/login
+                      try {
+                        // Re-read schedules once to get the current substitution ids (avoid timing mismatch)
+                        const qs = await getDocs(collection(db, 'schedules'));
+                        const idsToAck: { id: string; ts: number }[] = [];
+                        qs.forEach((docSnap) => {
+                          const data = docSnap.data() as any;
+                          const scheduleMap = data?.schedule || {};
+                          Object.keys(scheduleMap).forEach((key: string) => {
+                            const entry = scheduleMap[key];
+                            if (entry?.substituteTeacher === currentUsername) {
+                              const id = `${docSnap.id}-${key}`;
+                              // Prefer per-entry updatedAt when available for ack timestamp comparison later
+                              const entryUpdatedAt = entry?.updatedAt?.toDate?.()?.getTime?.() || data?.updatedAt?.toDate?.()?.getTime?.() || Date.now();
+                              idsToAck.push({ id, ts: entryUpdatedAt });
+                            }
+                          });
+                        });
+                        // merge idsToAck into ackedSubstitutionMap with current or entry timestamp as ack baseline
+                        const nowTs = Date.now();
+                        const newMap = { ...(ackedSubstitutionMap || {}) };
+                        idsToAck.forEach((obj: any) => { newMap[obj.id] = Math.max(obj.ts || nowTs, nowTs); });
+                        await AsyncStorage.setItem(ACK_SUBS_KEY, JSON.stringify(newMap));
+                        setAckedSubstitutionMap(newMap);
+                      } catch (e) {
+                        console.warn('Failed to persist acked substitution ids', e);
+                      }
+                      setTotalBadgeCount(0);
                   } catch (e) {
                     console.warn('Failed to acknowledge notifications', e);
                   } finally {
@@ -1046,5 +1167,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  debugContainer: {
+    marginBottom: 12,
+    alignItems: 'flex-end',
+  },
+  debugToggle: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(30,64,175,0.08)',
+    borderRadius: 8,
+  },
+  debugBox: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    padding: 10,
+    borderRadius: 8,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  debugTitle: {
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#374151',
+  },
+  debugButton: {
+    backgroundColor: '#EF4444',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
   },
 });
