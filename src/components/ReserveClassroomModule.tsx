@@ -283,10 +283,7 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
       Alert.alert('Missing info', 'Please choose a time slot.');
       return;
     }
-    if (!feedbackText.trim()) {
-      Alert.alert('Error', 'Please enter your notes.');
-      return;
-    }
+    // Notes are optional now; do not block submission if empty
     // Enforce reservation window
     if (!isWithinReservationWindow(calendarSelectedDate)) {
       Alert.alert('Not allowed', 'You can only reserve for today up to 7 days ahead.');
@@ -331,7 +328,7 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
   };
 
   const handleAttachFile = () => {
-    Alert.alert('File Attachment', 'File attachment feature coming soon!');
+    // attachment feature removed
   };
 
   const selectDate = (date: Date) => {
@@ -698,11 +695,6 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
               onChangeText={setFeedbackText}
             />
           </View>
-
-          <TouchableOpacity style={styles.attachButton} onPress={handleAttachFile}>
-            <Text style={styles.attachButtonText}>ATTACH FILE</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity style={[styles.submitButton, submitting && styles.disabledButton]} onPress={handleSubmitFeedback} disabled={submitting}>
             <Text style={styles.submitButtonText}>{submitting ? 'SUBMITTING...' : 'SUBMIT'}</Text>
           </TouchableOpacity>

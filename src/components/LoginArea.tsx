@@ -98,15 +98,15 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
   const isConfirmPasswordValid = password === confirmPassword && confirmPassword.length > 0;
 
   const handleLogin = async () => {
-    if (!username || !password) {
+    const normalized = username?.trim().toLowerCase();
+    if (!normalized || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     try {
       setIsLoading(true);
-
-      const userRef = doc(db, 'users', username);
+      const userRef = doc(db, 'users', normalized);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
         Alert.alert('Error', 'Invalid username or password');
@@ -120,7 +120,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
         return;
       }
 
-      const displayName = data.fullName || username;
+  const displayName = data.fullName || username;
       // Persist session user for other screens
       try {
         const { saveCurrentUser } = await import('@/lib/session');
@@ -131,7 +131,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
 
       Alert.alert('Success', `Welcome back, ${displayName}!`);
       if (onLogin) {
-        onLogin(username, password, 'Academic');
+        onLogin(normalized, password, 'Academic');
       } else if (navigation) {
         navigation.navigate('Home');
       }
@@ -144,7 +144,8 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
   };
 
   const handleRegister = async () => {
-    if (!username || !password || !confirmPassword) {
+    const normalized = username?.trim().toLowerCase();
+    if (!normalized || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
@@ -168,7 +169,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
       setIsLoading(true);
 
       // Check if username already exists in Firestore
-      const userRef = doc(db, 'users', username);
+      const userRef = doc(db, 'users', normalized);
       const existing = await getDoc(userRef);
       if (existing.exists()) {
         Alert.alert('Error', 'Username already exists');
@@ -179,7 +180,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
   const passwordHash = bcrypt.hashSync(password, 10);
 
       await setDoc(userRef, {
-        username,
+        username: normalized,
         fullName: username,
         passwordHash,
         createdAt: serverTimestamp(),
@@ -189,7 +190,7 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
       Alert.alert('Success', 'Account created successfully!', [
         {
           text: 'OK',
-          onPress: () => {
+            onPress: () => {
             setIsRegistering(false);
             setUsername('');
             setPassword('');
