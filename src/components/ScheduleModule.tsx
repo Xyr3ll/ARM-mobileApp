@@ -91,70 +91,106 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
     Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
   }), []);
 
-  // Real-time schedules for professor from Firestore
+  // Real-time schedules for professor from Firestore, merged with nonTeachingHours from faculty
   useEffect(() => {
-  if (!professorId) return; // no professor id yet
-  // normalize the incoming professorId to avoid casing/whitespace mismatches
-  const normalizedProfessorId = professorId.trim().toLowerCase();
+    if (!professorId) return;
+    const normalizedProfessorId = professorId.trim().toLowerCase();
     setLoading(true);
     setError(null);
 
     const colRef = collection(db, 'schedules');
-    const unsubscribe = onSnapshot(
-      colRef,
-      (snapshot) => {
-        const result: Record<string, ScheduleItem[]> = {};
+    const facultyColRef = collection(db, 'faculty');
 
-        let totalDocs = 0;
-        let matchedKeys = 0;
-        snapshot.forEach((docSnap) => {
-          totalDocs += 1;
-          const data = docSnap.data() as any;
-          const scheduleMap = data?.schedule || {};
-          const assignments = data?.professorAssignments || {};
+    // Listen to schedules
+    const unsubscribeSchedules = onSnapshot(colRef, (snapshot) => {
+      const result: Record<string, ScheduleItem[]> = {};
+      let totalDocs = 0;
+      let matchedKeys = 0;
+      snapshot.forEach((docSnap) => {
+        totalDocs += 1;
+        const data = docSnap.data() as any;
+        const scheduleMap = data?.schedule || {};
+        const assignments = data?.professorAssignments || {};
+        Object.keys(scheduleMap).forEach((key: string, idx) => {
+          const assignedProfessor = assignments?.[key];
+          const normAssigned = typeof assignedProfessor === 'string' ? assignedProfessor.trim().toLowerCase() : assignedProfessor;
+          const normDocId = String(docSnap.id).trim().toLowerCase();
+          const isMatch = normAssigned === normalizedProfessorId || normDocId === normalizedProfessorId;
+          if (__DEV__ && !isMatch) {
+            try {
+              if (assignedProfessor) {
+                console.log('[Schedule][match-debug] assigned:', assignedProfessor, 'docId:', docSnap.id, 'normalizedAssigned:', normAssigned, 'normalizedDocId:', normDocId, 'lookingFor:', normalizedProfessorId);
+              }
+            } catch (e) {}
+          }
+          if (!isMatch) return;
+          const [fullDay] = key.split('_');
+          const shortDay = weekdayMap[fullDay] || fullDay.slice(0, 3);
+          const entry = scheduleMap[key];
+          const timeRange = `${entry.startTime} - ${entry.endTime}`;
+          const item: ScheduleItem = {
+            id: `${docSnap.id}-${key}-${idx}`,
+            time: timeRange,
+            title: entry.subject || 'Class',
+            location: entry.room,
+            code: entry.sectionName,
+            type: 'class',
+          };
+          if (!result[shortDay]) result[shortDay] = [];
+          result[shortDay].push(item);
+          matchedKeys += 1;
+        });
+      });
 
-          Object.keys(scheduleMap).forEach((key: string, idx) => {
-            // key like 'Monday_7:00AM'
-            const assignedProfessor = assignments?.[key];
-            // normalize values (trim + lowercase) before comparing since Firestore values
-            // may have different casing or stray spaces (e.g. "JB CAAMPUED" vs "jb caampued")
-            const normAssigned = typeof assignedProfessor === 'string' ? assignedProfessor.trim().toLowerCase() : assignedProfessor;
-            const normDocId = String(docSnap.id).trim().toLowerCase();
-            const isMatch = normAssigned === normalizedProfessorId || normDocId === normalizedProfessorId;
-            if (__DEV__ && !isMatch) {
-              // Helpful debugging in development when schedules exist but don't match
-              // (only log when there's an assignedProfessor present)
-              try {
-                if (assignedProfessor) {
-                  console.log('[Schedule][match-debug] assigned:', assignedProfessor, 'docId:', docSnap.id, 'normalizedAssigned:', normAssigned, 'normalizedDocId:', normDocId, 'lookingFor:', normalizedProfessorId);
-                }
-              } catch (e) {
-                // swallow any logging errors
+      // Now fetch nonTeachingHours from faculty collection for this professor
+      onSnapshot(facultyColRef, (facultySnap) => {
+        facultySnap.forEach((facultyDoc) => {
+          const facultyData = facultyDoc.data() as any;
+          // Match professorId to facultyData.professor (case-insensitive)
+          const normFacultyProfessor = facultyData?.professor ? String(facultyData.professor).trim().toLowerCase() : '';
+          if (normFacultyProfessor !== normalizedProfessorId) return;
+          const nonTeachingHours = facultyData?.nonTeachingHours || [];
+          nonTeachingHours.forEach((nth: any, idx: number) => {
+            const shortDay = weekdayMap[nth.day] || nth.day.slice(0, 3);
+            let timeRange = nth.time;
+            if (nth.hours && nth.time) {
+              const startMatch = nth.time.match(/(\d+):(\d+)(AM|PM)/i);
+              if (startMatch) {
+                let h = parseInt(startMatch[1], 10);
+                let min = parseInt(startMatch[2], 10);
+                const ap = startMatch[3].toUpperCase();
+                if (ap === 'PM' && h !== 12) h += 12;
+                if (ap === 'AM' && h === 12) h = 0;
+                const startMinutes = h * 60 + min;
+                const endMinutes = startMinutes + parseInt(nth.hours, 10) * 60;
+                let endH = Math.floor(endMinutes / 60);
+                let endMin = endMinutes % 60;
+                let endAp = endH >= 12 ? 'PM' : 'AM';
+                if (endH > 12) endH -= 12;
+                if (endH === 0) endH = 12;
+                const pad = (n: number) => n < 10 ? `0${n}` : `${n}`;
+                timeRange = `${nth.time} - ${pad(endH)}:${pad(endMin)}${endAp}`;
               }
             }
-            if (!isMatch) return; // skip if not assigned to current professor and doc isn't owned by professor
-
-            const [fullDay] = key.split('_');
-            const shortDay = weekdayMap[fullDay] || fullDay.slice(0, 3);
-            const entry = scheduleMap[key];
-            const timeRange = `${entry.startTime} - ${entry.endTime}`;
+            let type: 'class' | 'consultation' | 'admin' = 'class';
+            let displayType = '';
+            if (nth.type) {
+              const t = String(nth.type).toLowerCase();
+              if (t === 'consultation') { type = 'consultation'; displayType = 'Consultation'; }
+              else if (t === 'administrative' || t === 'admin') { type = 'admin'; displayType = 'Administrative'; }
+            }
             const item: ScheduleItem = {
-              id: `${docSnap.id}-${key}-${idx}`,
+              id: `${facultyDoc.id}-nth-${shortDay}-${idx}`,
               time: timeRange,
-              title: entry.subject || 'Class',
-              location: entry.room,
-              code: entry.sectionName,
-              type: 'class',
+              title: `${displayType}${nth.time ? ` (${timeRange})` : ''}`,
+              location: nth.location,
+              code: undefined,
+              type,
             };
             if (!result[shortDay]) result[shortDay] = [];
             result[shortDay].push(item);
-            matchedKeys += 1;
           });
         });
-
-        if (__DEV__) {
-          console.log('[Schedule][realtime] scanned docs:', totalDocs, 'matched entries:', matchedKeys, 'for professor:', professorId);
-        }
 
         // Sort each day's items by start time if possible
         const toMinutes = (t?: string) => {
@@ -171,18 +207,16 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
         Object.keys(result).forEach(day => {
           result[day].sort((a, b) => toMinutes(a.time.split(' - ')[0]) - toMinutes(b.time.split(' - ')[0]));
         });
-
         setScheduleByDay(result);
         setLoading(false);
-      },
-      (e) => {
-        console.error('Fetch schedule error (realtime):', e);
-        setError('Failed to load schedule');
-        setLoading(false);
-      }
-    );
+      });
+    }, (e) => {
+      console.error('Fetch schedule error (realtime):', e);
+      setError('Failed to load schedule');
+      setLoading(false);
+    });
 
-    return () => unsubscribe();
+    return () => unsubscribeSchedules();
   }, [professorId, weekdayMap]);
 
   const currentSchedule = scheduleByDay[selectedDay] || [];

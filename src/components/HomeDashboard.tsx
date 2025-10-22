@@ -298,31 +298,39 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   useEffect(() => {
     if (!professorId) return;
-    // normalize professorId to avoid casing/whitespace mismatches
     const normalizedProfessorId = String(professorId).trim().toLowerCase();
     const colRef = collection(db, 'schedules');
-    const unsub = onSnapshot(colRef, (snapshot) => {
-      const items: ScheduleItem[] = [];
+    const facultyColRef = collection(db, 'faculty');
+    let unsubSchedules: (() => void) | null = null;
+    let unsubFaculty: (() => void) | null = null;
+    let items: ScheduleItem[] = [];
+
+    // Helper for time parsing
+    const toMin = (t?: string) => {
+      if (!t) return 0;
+      const m = t.match(/(\d+):(\d+)(AM|PM)/i);
+      if (!m) return 0;
+      let h = parseInt(m[1], 10);
+      const min = parseInt(m[2], 10);
+      const ap = m[3].toUpperCase();
+      if (ap === 'PM' && h !== 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + min;
+    };
+
+    unsubSchedules = onSnapshot(colRef, (snapshot) => {
+      items = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data() as any;
         const scheduleMap = data?.schedule || {};
         const assignments = data?.professorAssignments || {};
         Object.keys(scheduleMap).forEach((key: string) => {
-          // Expect keys like 'Monday_7:00AM'
           const [fullDay] = key.split('_');
           const assigned = assignments?.[key];
           const normAssigned = typeof assigned === 'string' ? assigned.trim().toLowerCase() : assigned;
           const normDocId = String(docSnap.id).trim().toLowerCase();
           const isMatch = normAssigned === normalizedProfessorId || normDocId === normalizedProfessorId;
-          if (__DEV__ && !isMatch) {
-            try {
-              if (assigned) {
-                console.log('[HomeDashboard][match-debug] assigned:', assigned, 'docId:', docSnap.id, 'normalizedAssigned:', normAssigned, 'normalizedDocId:', normDocId, 'lookingFor:', normalizedProfessorId);
-              }
-            } catch (e) {}
-          }
           if (!isMatch) return;
-          // Only include entries that match today's weekday
           const fullToShort: Record<string, string> = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
           const shortDay = fullToShort[fullDay] || fullDay.slice(0, 3);
           if (shortDay !== todayShort) return;
@@ -335,24 +343,61 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           });
         });
       });
-      // Sort by time
-      const toMin = (t?: string) => {
-        if (!t) return 0;
-        const m = t.match(/(\d+):(\d+)(AM|PM)/i);
-        if (!m) return 0;
-        let h = parseInt(m[1], 10);
-        const min = parseInt(m[2], 10);
-        const ap = m[3].toUpperCase();
-        if (ap === 'PM' && h !== 12) h += 12;
-        if (ap === 'AM' && h === 12) h = 0;
-        return h * 60 + min;
-      };
-      items.sort((a, b) => toMin(a.time.split(' - ')[0]) - toMin(b.time.split(' - ')[0]));
-      setTodaySchedule(items);
-    }, (e) => {
-      console.error('HomeDashboard schedule load error (realtime):', e);
+
+      // Now merge nonTeachingHours from faculty collection
+      unsubFaculty = onSnapshot(facultyColRef, (facultySnap) => {
+        facultySnap.forEach((facultyDoc) => {
+          const facultyData = facultyDoc.data() as any;
+          const normFacultyProfessor = facultyData?.professor ? String(facultyData.professor).trim().toLowerCase() : '';
+          if (normFacultyProfessor !== normalizedProfessorId) return;
+          const nonTeachingHours = facultyData?.nonTeachingHours || [];
+          nonTeachingHours.forEach((nth: any, idx: number) => {
+            const fullToShort: Record<string, string> = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
+            const shortDay = fullToShort[nth.day] || nth.day.slice(0, 3);
+            if (shortDay !== todayShort) return;
+            let timeRange = nth.time;
+            if (nth.hours && nth.time) {
+              const startMatch = nth.time.match(/(\d+):(\d+)(AM|PM)/i);
+              if (startMatch) {
+                let h = parseInt(startMatch[1], 10);
+                let min = parseInt(startMatch[2], 10);
+                const ap = startMatch[3].toUpperCase();
+                if (ap === 'PM' && h !== 12) h += 12;
+                if (ap === 'AM' && h === 12) h = 0;
+                const startMinutes = h * 60 + min;
+                const endMinutes = startMinutes + parseInt(nth.hours, 10) * 60;
+                let endH = Math.floor(endMinutes / 60);
+                let endMin = endMinutes % 60;
+                let endAp = endH >= 12 ? 'PM' : 'AM';
+                if (endH > 12) endH -= 12;
+                if (endH === 0) endH = 12;
+                const pad = (n: number) => n < 10 ? `0${n}` : `${n}`;
+                timeRange = `${nth.time} - ${pad(endH)}:${pad(endMin)}${endAp}`;
+              }
+            }
+            let displayType = '';
+            if (nth.type) {
+              const t = String(nth.type).toLowerCase();
+              if (t === 'consultation') displayType = 'Consultation';
+              else if (t === 'administrative' || t === 'admin') displayType = 'Administrative';
+            }
+            items.push({
+              time: timeRange,
+              title: `${displayType}${nth.time ? ` (${timeRange})` : ''}`,
+              location: nth.location || '',
+              code: '',
+            });
+          });
+        });
+        // Sort by time
+        items.sort((a, b) => toMin(a.time.split(' - ')[0]) - toMin(b.time.split(' - ')[0]));
+        setTodaySchedule([...items]);
+      });
     });
-    return () => unsub();
+    return () => {
+      if (unsubSchedules) unsubSchedules();
+      if (unsubFaculty) unsubFaculty();
+    };
   }, [professorId, todayShort]);
 
   const getCurrentTime = () => {

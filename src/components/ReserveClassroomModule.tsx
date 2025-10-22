@@ -216,8 +216,9 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
       });
     });
 
-    // Add reservations occupancy for that day and collect rooms from reservations
+    // Add only approved reservations occupancy for that day and collect rooms from reservations
     dayReservations.forEach((res: any) => {
+      if (res.status !== 'approved') return; // Only block slots for approved reservations
       const room = res.roomName;
       const slot: string = res.timeSlot;
       if (!room) return;
