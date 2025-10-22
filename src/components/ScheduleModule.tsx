@@ -93,7 +93,9 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
 
   // Real-time schedules for professor from Firestore
   useEffect(() => {
-    if (!professorId) return; // no professor id yet
+  if (!professorId) return; // no professor id yet
+  // normalize the incoming professorId to avoid casing/whitespace mismatches
+  const normalizedProfessorId = professorId.trim().toLowerCase();
     setLoading(true);
     setError(null);
 
@@ -114,7 +116,22 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
           Object.keys(scheduleMap).forEach((key: string, idx) => {
             // key like 'Monday_7:00AM'
             const assignedProfessor = assignments?.[key];
-            const isMatch = assignedProfessor === professorId || docSnap.id === professorId;
+            // normalize values (trim + lowercase) before comparing since Firestore values
+            // may have different casing or stray spaces (e.g. "JB CAAMPUED" vs "jb caampued")
+            const normAssigned = typeof assignedProfessor === 'string' ? assignedProfessor.trim().toLowerCase() : assignedProfessor;
+            const normDocId = String(docSnap.id).trim().toLowerCase();
+            const isMatch = normAssigned === normalizedProfessorId || normDocId === normalizedProfessorId;
+            if (__DEV__ && !isMatch) {
+              // Helpful debugging in development when schedules exist but don't match
+              // (only log when there's an assignedProfessor present)
+              try {
+                if (assignedProfessor) {
+                  console.log('[Schedule][match-debug] assigned:', assignedProfessor, 'docId:', docSnap.id, 'normalizedAssigned:', normAssigned, 'normalizedDocId:', normDocId, 'lookingFor:', normalizedProfessorId);
+                }
+              } catch (e) {
+                // swallow any logging errors
+              }
+            }
             if (!isMatch) return; // skip if not assigned to current professor and doc isn't owned by professor
 
             const [fullDay] = key.split('_');

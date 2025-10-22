@@ -298,6 +298,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   useEffect(() => {
     if (!professorId) return;
+    // normalize professorId to avoid casing/whitespace mismatches
+    const normalizedProfessorId = String(professorId).trim().toLowerCase();
     const colRef = collection(db, 'schedules');
     const unsub = onSnapshot(colRef, (snapshot) => {
       const items: ScheduleItem[] = [];
@@ -309,7 +311,17 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           // Expect keys like 'Monday_7:00AM'
           const [fullDay] = key.split('_');
           const assigned = assignments?.[key];
-          if (assigned !== professorId && docSnap.id !== professorId) return;
+          const normAssigned = typeof assigned === 'string' ? assigned.trim().toLowerCase() : assigned;
+          const normDocId = String(docSnap.id).trim().toLowerCase();
+          const isMatch = normAssigned === normalizedProfessorId || normDocId === normalizedProfessorId;
+          if (__DEV__ && !isMatch) {
+            try {
+              if (assigned) {
+                console.log('[HomeDashboard][match-debug] assigned:', assigned, 'docId:', docSnap.id, 'normalizedAssigned:', normAssigned, 'normalizedDocId:', normDocId, 'lookingFor:', normalizedProfessorId);
+              }
+            } catch (e) {}
+          }
+          if (!isMatch) return;
           // Only include entries that match today's weekday
           const fullToShort: Record<string, string> = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
           const shortDay = fullToShort[fullDay] || fullDay.slice(0, 3);
