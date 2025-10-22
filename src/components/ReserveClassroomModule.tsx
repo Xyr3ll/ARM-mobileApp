@@ -193,18 +193,22 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
     const shortMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dayShort = shortMap[calendarSelectedDate.getDay()];
 
-    // Build occupancy by room from schedules for that weekday
+    // Build occupancy by room from schedules for that weekday and collect all rooms seen
     const occupancy: Record<string, Array<{ start: number; end: number }>> = {};
+    const roomsSet = new Set<string>();
+
     scheduleDocs.forEach((doc: any) => {
       const scheduleMap = doc?.schedule || {};
       Object.keys(scheduleMap).forEach((key: string) => {
         const [fullDay] = key.split('_');
         const mapFullToShort: Record<string, string> = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
         const short = mapFullToShort[fullDay] || fullDay.slice(0, 3);
-        if (short !== dayShort) return;
         const entry = scheduleMap[key];
         const room = entry?.room;
         if (!room) return;
+        // Always collect the room even if schedule not for this weekday (we want to show all rooms)
+        roomsSet.add(room);
+        if (short !== dayShort) return; // only block slots from schedules that fall on the selected weekday
         const start = toMinutes(entry.startTime);
         const end = toMinutes(entry.endTime);
         if (!occupancy[room]) occupancy[room] = [];
@@ -212,11 +216,13 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
       });
     });
 
-    // Add reservations occupancy for that day
+    // Add reservations occupancy for that day and collect rooms from reservations
     dayReservations.forEach((res: any) => {
       const room = res.roomName;
       const slot: string = res.timeSlot;
-      if (!room || !slot) return;
+      if (!room) return;
+      roomsSet.add(room);
+      if (!slot) return;
       const [s, e] = slot.split(' - ').map(x => x.trim());
       const start = toMinutes(s);
       const end = toMinutes(e);
@@ -224,12 +230,15 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
       occupancy[room].push({ start, end });
     });
 
-    // For each room, compute free slots from standard timeSlots
-    const rooms = Object.keys(occupancy);
+    // Also include rooms that may exist in scheduleDocs but had no entries for the selected weekday
+    // (roomsSet already contains them because we collected above)
+
+    const rooms = Array.from(roomsSet);
     const makeSlotRange = (slot: string) => {
       const [s, e] = slot.split(' - ').map(x => x.trim());
       return { s: toMinutes(s), e: toMinutes(e) };
     };
+
     const result: DerivedRoom[] = rooms.map((roomName) => {
       const occ = occupancy[roomName] || [];
       const free = timeSlots.filter((slot) => {
@@ -237,10 +246,8 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
         return !occ.some(r => rangesOverlap(s, e, r.start, r.end));
       });
       return { name: roomName, type: inferRoomType(roomName), freeSlots: free };
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name));
 
-    // If a room has zero occupancy at all (not present in schedules for that weekday), it's free for all slots — but
-    // to keep aligned with “based sa mga nagawang schedule”, we only list rooms known in schedules for that weekday.
     return result;
   }, [calendarSelectedDate, scheduleDocs, dayReservations]);
 
