@@ -100,6 +100,10 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  const [selectedStart, setSelectedStart] = useState<string | null>(null);
+  const [selectedEnd, setSelectedEnd] = useState<string | null>(null);
+  const [showStartDropdown, setShowStartDropdown] = useState(false);
+  const [showEndDropdown, setShowEndDropdown] = useState(false);
   const [roomType, setRoomType] = useState<'lecture' | 'laboratory' | 'all'>('all');
   const [feedbackText, setFeedbackText] = useState<string>('');
   const [showSubmittedModal, setShowSubmittedModal] = useState(false);
@@ -173,17 +177,129 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
     return /lab/i.test(roomName) ? 'laboratory' : 'lecture';
   };
 
-  const timeSlots = [
-    '7:00 AM - 8:00 AM',
-    '8:00 AM - 9:00 AM',
-    '9:00 AM - 10:00 AM',
-    '10:00 AM - 11:00 AM',
-    '11:00 AM - 12:00 PM',
-    '1:00 PM - 2:00 PM',
-    '2:00 PM - 3:00 PM',
-    '3:00 PM - 4:00 PM',
-    '4:00 PM - 5:00 PM',
-  ];
+  // Generate 30-minute slots within working ranges (keeps lunch gap 12:00-1:00)
+  const timeSlots: string[] = React.useMemo(() => {
+    const ranges = [
+      { startHour: 7, endHour: 12 }, // 7:00 - 12:00 (last slot 11:30-12:00)
+      { startHour: 13, endHour: 17 }, // 1:00 - 17:00 (last slot 16:30-17:00)
+    ];
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    const format = (minutes: number) => {
+      let h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      const ap = h >= 12 ? 'PM' : 'AM';
+      if (h > 12) h = h - 12;
+      if (h === 0) h = 12;
+      return `${h}:${pad(m)} ${ap}`;
+    };
+    const slots: string[] = [];
+    ranges.forEach(r => {
+      for (let m = r.startHour * 60; m < r.endHour * 60; m += 30) {
+        const s = format(m);
+        const e = format(m + 30);
+        slots.push(`${s} - ${e}`);
+      }
+    });
+    return slots;
+  }, [/* static */]);
+
+  // derive simple start/end lists from timeSlots (30-minute granularity)
+  const startOptions = React.useMemo(() => timeSlots.map(s => s.split(' - ')[0]), [timeSlots]);
+  const endOptions = React.useMemo(() => timeSlots.map(s => s.split(' - ')[1]), [timeSlots]);
+
+  // compute occupancy array for a given room on the selected date
+  const computeOccupancyForRoom = (roomName: string) => {
+    const occ: Array<{ start: number; end: number }> = [];
+    // schedules
+    scheduleDocs.forEach((doc: any) => {
+      const scheduleMap = doc?.schedule || {};
+      Object.keys(scheduleMap).forEach((key: string) => {
+        const [fullDay] = key.split('_');
+        const mapFullToShort: Record<string, string> = { Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
+        const short = mapFullToShort[fullDay] || fullDay.slice(0, 3);
+        const entry = scheduleMap[key];
+        const room = entry?.room;
+        if (!room) return;
+        if (room !== roomName) return;
+        if (!calendarSelectedDate) return;
+        const shortMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayShort = shortMap[calendarSelectedDate.getDay()];
+        if (short !== dayShort) return;
+        const start = toMinutes(entry.startTime);
+        const end = toMinutes(entry.endTime);
+        occ.push({ start, end });
+      });
+    });
+
+    // approved reservations
+    dayReservations.forEach((res: any) => {
+      if (res.status !== 'approved') return;
+      if (res.roomName !== roomName) return;
+      const slot: string = res.timeSlot;
+      if (!slot) return;
+      const [s, e] = slot.split(' - ').map((x: string) => x.trim());
+      const start = toMinutes(s);
+      const end = toMinutes(e);
+      occ.push({ start, end });
+    });
+
+    return occ;
+  };
+
+  const isIntervalFreeForRoom = (roomName: string, startMin: number, endMin: number) => {
+    const occ = computeOccupancyForRoom(roomName);
+    return !occ.some(r => rangesOverlap(startMin, endMin, r.start, r.end));
+  };
+
+  // Given a selectedStart (like '9:00 AM'), return an array of end times
+  // that keep the entire interval inside contiguous freeSlotsForSelectedRoom
+  const getEndOptionsForStart = (start: string | null) => {
+    if (!start || !selectedRoom) return [];
+    const slots = freeSlotsForSelectedRoom.map(slot => {
+      const [s, e] = slot.split(' - ').map(x => x.trim());
+      return { s, e, sMin: toMinutes(s), eMin: toMinutes(e) };
+    }).sort((a, b) => a.sMin - b.sMin);
+
+    const startMin = toMinutes(start);
+    const startIdx = slots.findIndex(sl => sl.sMin === startMin);
+    if (startIdx === -1) return [];
+
+    const ends: string[] = [];
+    let curEndMin = slots[startIdx].eMin;
+    ends.push(slots[startIdx].e);
+    let j = startIdx + 1;
+    while (j < slots.length && slots[j].sMin === curEndMin) {
+      // contiguous slot
+      curEndMin = slots[j].eMin;
+      ends.push(slots[j].e);
+      j++;
+    }
+    return Array.from(new Set(ends));
+  };
+
+  // Simple modal dropdown component
+  const ModalDropdown: React.FC<{
+    visible: boolean;
+    title?: string;
+    options: string[];
+    onClose: () => void;
+    onSelect: (val: string) => void;
+  }> = ({ visible, title, options, onClose, onSelect }) => (
+    <Modal visible={visible} transparent animationType="fade">
+      <TouchableOpacity style={styles.submittedOverlay} activeOpacity={1} onPress={onClose}>
+        <View style={[styles.submittedPopup, { width: width - 60, maxHeight: 400 }]}>
+          {title && <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10 }}>{title}</Text>}
+          <ScrollView>
+            {options.map(opt => (
+              <TouchableOpacity key={opt} style={{ paddingVertical: 12 }} onPress={() => { onSelect(opt); onClose(); }}>
+                <Text style={{ fontSize: 16 }}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
 
   // Compute availability for selected date from schedules and reservations
   type DerivedRoom = { name: string; type: 'lecture' | 'laboratory'; freeSlots: string[] };
@@ -518,6 +634,9 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
                 onPress={() => {
                   setSelectedRoom(room.name);
                   setRoomType(room.type);
+                  setSelectedStart(null);
+                  setSelectedEnd(null);
+                  setSelectedTimeSlot(null);
                   setCurrentScreen('reserve');
                 }}
               >
@@ -595,38 +714,47 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
 
         {/* Time Slots Selection */}
         <View style={styles.timeSlotsSection}>
-          <Text style={styles.sectionTitle}>Available Time Slots</Text>
-          {freeSlotsForSelectedRoom.length > 0 ? (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.timeSlotsScrollContainer}
+          <Text style={styles.sectionTitle}>Choose Time</Text>
+          <View style={{ paddingHorizontal: 20 }}>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => setShowStartDropdown(true)}
+              disabled={!selectedRoom}
             >
-              {freeSlotsForSelectedRoom.map((slot) => (
-                <TouchableOpacity
-                  key={slot}
-                  style={[
-                    styles.timeSlotCard,
-                    selectedTimeSlot === slot && styles.selectedTimeSlot,
-                  ]}
-                  onPress={() => setSelectedTimeSlot(slot)}
-                >
-                  <Text
-                    style={[
-                      styles.timeSlotText,
-                      selectedTimeSlot === slot && styles.selectedTimeSlotText,
-                    ]}
-                  >
-                    {slot}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
+              <Text style={styles.dropdownButtonText}>{selectedStart || 'TIME START'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.dropdownButton, !selectedStart && styles.disabledButton]}
+              onPress={() => setShowEndDropdown(true)}
+              disabled={!selectedStart}
+            >
+              <Text style={styles.dropdownButtonText}>{selectedEnd || 'TIME END'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* No free slots message when room has none */}
+          {freeSlotsForSelectedRoom.length === 0 && (
             <View style={styles.noSlotsContainer}>
               <Text style={styles.noSlotsText}>No free slots for this room on the selected date.</Text>
             </View>
           )}
+
+          {/* Dropdown modals */}
+          <ModalDropdown
+            visible={showStartDropdown}
+            title="Select Start Time"
+            options={Array.from(new Set(freeSlotsForSelectedRoom.map(s => s.split(' - ')[0])))}
+            onClose={() => setShowStartDropdown(false)}
+            onSelect={(val) => { setSelectedStart(val); setSelectedEnd(null); }}
+          />
+          <ModalDropdown
+            visible={showEndDropdown}
+            title="Select End Time"
+            options={selectedStart ? getEndOptionsForStart(selectedStart) : []}
+            onClose={() => setShowEndDropdown(false)}
+            onSelect={(val) => { setSelectedEnd(val); }}
+          />
         </View>
 
 
@@ -634,10 +762,22 @@ export const ReserveClassroomModule: React.FC<ReserveClassroomModuleProps> = ({
         <TouchableOpacity
           style={[
             styles.nextButton,
-            !selectedTimeSlot && styles.disabledButton,
+            (!selectedStart || !selectedEnd || !selectedRoom) && styles.disabledButton,
           ]}
-          onPress={() => setCurrentScreen('feedback')}
-          disabled={!selectedTimeSlot}
+          onPress={() => {
+            if (!selectedStart || !selectedEnd) return;
+            if (!selectedRoom) { Alert.alert('Missing info', 'Please select a room.'); return; }
+            const sMin = toMinutes(selectedStart);
+            const eMin = toMinutes(selectedEnd);
+            if (eMin <= sMin) { Alert.alert('Invalid range', 'End time must be after start time.'); return; }
+            if (!isIntervalFreeForRoom(selectedRoom, sMin, eMin)) {
+              Alert.alert('Slot unavailable', 'Sorry, this time range is not available.');
+              return;
+            }
+            setSelectedTimeSlot(`${selectedStart} - ${selectedEnd}`);
+            setCurrentScreen('feedback');
+          }}
+          disabled={!selectedStart || !selectedEnd || !selectedRoom}
         >
           <Text style={styles.nextButtonText}>NEXT</Text>
         </TouchableOpacity>
@@ -1146,6 +1286,21 @@ const styles = StyleSheet.create({
   },
   activeFilterButtonText: {
     color: '#FFFFFF',
+  },
+  dropdownButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+    color: '#374151',
+    fontWeight: '600',
   },
   // No rooms message
   noRoomsContainer: {

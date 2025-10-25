@@ -75,6 +75,7 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
   }, []);
   const [selectedDay, setSelectedDay] = useState(todayShort);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [showApprovedMessage, setShowApprovedMessage] = useState(showApprovalMessage);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -289,11 +290,16 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
       </View>
 
 
-      {/* View Options */}
-      <TouchableOpacity style={styles.viewOptions} onPress={() => setShowCalendarModal(true)}>
-        <Text style={styles.viewText}>View</Text>
-        <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
-      </TouchableOpacity>
+      {/* View Options: calendar and mode toggle (Day / Week) */}
+      <View style={styles.viewOptionsRow}>
+        <TouchableOpacity style={styles.viewOptions} onPress={() => setShowCalendarModal(true)}>
+          <Text style={styles.viewText}>View</Text>
+          <MaterialIcons name="keyboard-arrow-down" size={20} color="#6B7280" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.viewModeToggle} onPress={() => setViewMode(prev => prev === 'day' ? 'week' : 'day')}>
+          <Text style={styles.viewModeText}>{viewMode === 'day' ? 'Day' : 'Week'}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Day Navigation */}
       <View style={styles.dayNavigation}>
@@ -324,7 +330,7 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
         <Text style={styles.todayDate}>{getCurrentDate()}</Text>
       </View>
 
-  {/* Schedule List */}
+      {/* Schedule List */}
       <ScrollView style={styles.scheduleContainer} showsVerticalScrollIndicator={false}>
         {loading ? (
           <View style={styles.emptyState}>
@@ -334,27 +340,63 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
           <View style={styles.emptyState}>
             <Text style={styles.noClassesText}>{error}</Text>
           </View>
-        ) : currentSchedule.length > 0 ? (
-          currentSchedule.map((item) => (
-            <View key={item.id} style={[styles.scheduleItem, getScheduleItemStyle(item.type)]}>
-              <View style={styles.timeContainer}>
-                <Text style={styles.timeText}>{item.time}</Text>
+        ) : viewMode === 'day' ? (
+          currentSchedule.length > 0 ? (
+            currentSchedule.map((item) => (
+              <View key={item.id} style={[styles.scheduleItem, getScheduleItemStyle(item.type)]}>
+                <View style={styles.timeContainer}>
+                  <Text style={styles.timeText}>{item.time}</Text>
+                </View>
+                <View style={styles.scheduleDetails}>
+                  <Text style={styles.scheduleTitle}>{item.title}</Text>
+                  {item.location && (
+                    <Text style={styles.scheduleLocation}>{item.location}</Text>
+                  )}
+                  {item.code && (
+                    <Text style={styles.scheduleCode}>{item.code}</Text>
+                  )}
+                </View>
               </View>
-              <View style={styles.scheduleDetails}>
-                <Text style={styles.scheduleTitle}>{item.title}</Text>
-                {item.location && (
-                  <Text style={styles.scheduleLocation}>{item.location}</Text>
-                )}
-                {item.code && (
-                  <Text style={styles.scheduleCode}>{item.code}</Text>
-                )}
-              </View>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.noClassesText}>No classes scheduled for {getCurrentDate()}</Text>
             </View>
-          ))
+          )
         ) : (
-          <View style={styles.emptyState}>
-            <Text style={styles.noClassesText}>No classes scheduled for {getCurrentDate()}</Text>
-          </View>
+          // Week view: render each day in order
+          days.map((dayShort) => {
+            const items = scheduleByDay[dayShort] || [];
+            return (
+              <View key={`week-${dayShort}`} style={{ marginBottom: 12 }}>
+                <View style={styles.weekDayHeader}>
+                  <Text style={styles.weekDayHeaderText}>{dayShort}</Text>
+                </View>
+                {items.length > 0 ? (
+                  items.map(item => (
+                    <View key={item.id} style={[styles.scheduleItem, getScheduleItemStyle(item.type)]}>
+                      <View style={styles.timeContainer}>
+                        <Text style={styles.timeText}>{item.time}</Text>
+                      </View>
+                      <View style={styles.scheduleDetails}>
+                        <Text style={styles.scheduleTitle}>{item.title}</Text>
+                        {item.location && (
+                          <Text style={styles.scheduleLocation}>{item.location}</Text>
+                        )}
+                        {item.code && (
+                          <Text style={styles.scheduleCode}>{item.code}</Text>
+                        )}
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <View style={styles.emptyStateSmall}>
+                    <Text style={styles.noClassesTextSmall}>No classes</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })
         )}
       </ScrollView>
 
@@ -709,5 +751,44 @@ const styles = StyleSheet.create({
   dayNumberSelected: {
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+  viewOptionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  viewModeToggle: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  viewModeText: {
+    color: '#1E40AF',
+    fontWeight: '600',
+  },
+  weekDayHeader: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  weekDayHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  emptyStateSmall: {
+    paddingVertical: 8,
+    paddingLeft: 12,
+  },
+  noClassesTextSmall: {
+    fontSize: 12,
+    color: '#6B7280',
   },
 });

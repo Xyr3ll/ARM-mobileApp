@@ -113,14 +113,26 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
         return;
       }
 
-  const data = snap.data() as { passwordHash: string; fullName?: string };
-  const ok = bcrypt.compareSync(password, data.passwordHash);
+      const data = snap.data() as { passwordHash: string; fullName?: string; approved?: boolean; declined?: boolean | string };
+      // If admin explicitly declined the account, show decline message
+      const anyData = data as any;
+      if (anyData?.declined === true || anyData?.declined === 'true' || anyData?.approved === 'declined') {
+        Alert.alert('Account Declined', 'Please contact administrator');
+        return;
+      }
+      // Block login if the account hasn't been approved by an admin yet
+      if (!data.approved) {
+        Alert.alert('Account pending', 'Your account is pending approval by an administrator. You will be able to log in once approved.');
+        return;
+      }
+
+      const ok = bcrypt.compareSync(password, data.passwordHash);
       if (!ok) {
         Alert.alert('Error', 'Invalid username or password');
         return;
       }
 
-  const displayName = data.fullName || username;
+      const displayName = data.fullName || username;
       // Persist session user for other screens
       try {
         const { saveCurrentUser } = await import('@/lib/session');
@@ -185,6 +197,8 @@ export const LoginArea: React.FC<LoginAreaProps> = ({ navigation, onLogin }) => 
         passwordHash,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        // New accounts are created as pending and require admin approval before login
+        approved: false,
       });
 
       Alert.alert('Success', 'Account created successfully!', [
